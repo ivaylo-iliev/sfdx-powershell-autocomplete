@@ -7,13 +7,24 @@ $global:sfdxCommandsFile = "$HOME/.sfdxcommands.json"
 $sfdxCommandsFileCreateBlock = {
     Param($sfdxCommandsFile)
     $tempCommandsFile = "$HOME/.sfdxcommandsinit.json"
-    sfdx commands --json | Out-File -FilePath $tempCommandsFile
+    sfdx commands --hidden --json | Out-File -FilePath $tempCommandsFile
     Move-Item -Path $tempCommandsFile -Destination $sfdxCommandsFile -Force
     return Get-Content $sfdxCommandsFile | ConvertFrom-Json
 }
 
-<# executes the above script in the background so user is not waiting for the shell to start #>
-$sfdxCommandsFileCreateJob = Start-Job -ScriptBlock $sfdxCommandsFileCreateBlock -argumentlist $global:sfdxCommandsFile
+<# Check if the command file exists. If not - create it. This is to ensure less frequent executions. #>
+if( -not (Test-Path -Path $global:sfdxCommandsFile -PathType Leaf)){
+    $sfdxCommandsFileCreateJob = Start-Job -ScriptBlock $sfdxCommandsFileCreateBlock -argumentlist $global:sfdxCommandsFile
+}
+
+<# Check if the command file has not updated more than 10 days. If so - update it. #>
+if((Test-Path -Path $global:sfdxCommandsFile -PathType Leaf) && Test-Path $global:sfdxCommandsFile -OlderThan (Get-Date).AddDays(-10)){
+    $lastWrite = (get-item $global:sfdxCommandsFile).LastWriteTime
+    $timespan = new-timespan -days 10
+    if (((Get-Date) - $lastWrite) -gt $timespan) {
+        $sfdxCommandsFileCreateJob = Start-Job -ScriptBlock $sfdxCommandsFileCreateBlock -argumentlist $global:sfdxCommandsFile
+    }
+}
 
 <# script block for autocomplete. looks up matching commands from the file created above #>
 $scriptBlock = {
